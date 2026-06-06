@@ -27,6 +27,16 @@ public enum AppError: Error, Sendable, Equatable {
             return "Not found: \(s)"
         }
     }
+
+    public static func wrap(_ error: Error) -> AppError {
+        if let appErr = error as? AppError {
+            return appErr
+        }
+        if let sqliteErr = error as? SQLiteError {
+            return .database(sqliteErr)
+        }
+        return .unexpected(error.localizedDescription)
+    }
 }
 
 public enum SQLiteError: Error, Sendable, Equatable {

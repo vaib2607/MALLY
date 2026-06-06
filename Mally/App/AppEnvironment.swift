@@ -24,44 +24,47 @@ public final class AppEnvironment: ObservableObject {
             create: true
         )
         let mallyDir = appSupport.appendingPathComponent("Mally", isDirectory: true)
-        let companiesDir = mallyDir.appendingPathComponent("Companies", isDirectory: true)
         let registryPath = mallyDir.appendingPathComponent("mally_registry.sqlite").path
         let backupDir = mallyDir.appendingPathComponent("Backups", isDirectory: true)
-        self.manager = DatabaseManager(
-            companiesDirectory: companiesDir,
-            registryPath: registryPath,
-            backupDirectory: backupDir
-        )
+
+        self.manager = try! DatabaseManager(appSupportDirectory: mallyDir)
         self.router = AppRouter()
+
         let registryDb = try! SQLiteDatabase(path: registryPath)
         self.registry = RegistryRepository(db: registryDb)
-        self.backupService = BackupService(manager: manager, backupDirectory: backupDir)
+        self.backupService = BackupService(manager: manager)
     }
 
     public func bootstrap() async {
-        do {
-            try await manager.ensureDirectories()
-            try manager.runMigrationsIfNeeded()
-            try await manager.ensureRegistry()
-        } catch {
-            self.globalError = AppError.wrap(error)
-        }
+        // Directory creation + registry schema run inside DatabaseManager.init.
+        // Nothing to do here; kept as a hook for future one-time setup.
     }
 
     public func openCompany(_ id: Company.ID) async {
         isBusy = true
         defer { isBusy = false }
         do {
-            let ctx = try await manager.openHandle(id: id)
-            self.companyContext = ctx
+            let handle = try await manager.openCompany(id: id)
+            let fyRepo = FinancialYearRepository(db: handle.db)
+            guard let fy = try fyRepo.findMostRecent(handle.companyId) else {
+                throw AppError.notFound("Financial year for company \(id.uuidString)")
+            }
+            self.companyContext = CompanyContext(
+                companyId: handle.companyId,
+                financialYear: fy,
+                database: handle.db
+            )
             router.reset()
-            banner = BannerPayload(kind: .success, message: "Company opened.")
+            banner = BannerPayload(kind: .success("Company opened."), message: "Company opened.")
         } catch {
             globalError = AppError.wrap(error)
         }
     }
 
     public func closeCompany() {
+        if let ctx = companyContext {
+            Task { await manager.closeCompany(id: ctx.companyId) }
+        }
         companyContext = nil
         router.reset()
     }
@@ -71,11 +74,11 @@ public final class AppEnvironment: ObservableObject {
     }
 
     public func showInfo(_ message: String) {
-        banner = BannerPayload(kind: .info, message: message)
+        banner = BannerPayload(kind: .info(message), message: message)
     }
 
     public func showSuccess(_ message: String) {
-        banner = BannerPayload(kind: .success, message: message)
+        banner = BannerPayload(kind: .success(message), message: message)
     }
 
     public func clearBanner() {
@@ -95,8 +98,13 @@ public struct CompanyContext: Sendable {
     }
 }
 
-public struct BannerPayload: Identifiable, Sendable {
+public struct BannerPayload: Identifiable, Sendable, Equatable {
     public let id = UUID()
     public let kind: BannerKind
     public let message: String
+
+    public init(kind: BannerKind, message: String) {
+        self.kind = kind
+        self.message = message
+    }
 }

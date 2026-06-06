@@ -28,7 +28,7 @@ public struct RootView: View {
         .task { await env.bootstrap() }
         .alert(item: $env.globalError) { err in
             Alert(title: Text("Error"),
-                  message: Text(err.userMessage),
+                  message: Text(err.localizedMessage),
                   dismissButton: .default(Text("OK")) { env.globalError = nil })
         }
         .onReceive(NotificationCenter.default.publisher(for: .mallyRequestNewCompany)) { _ in

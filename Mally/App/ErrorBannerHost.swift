@@ -9,7 +9,7 @@ public struct ErrorBannerHost: View {
     public var body: some View {
         VStack(spacing: 4) {
             if let banner = env.banner {
-                ErrorBanner(kind: banner.kind, message: banner.message) {
+                ErrorBanner(kind: banner.kind) {
                     env.clearBanner()
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
